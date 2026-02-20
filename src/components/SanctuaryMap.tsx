@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import Papa from 'papaparse';
 import { 
   Wind, Sun, CloudRain, Droplets, Leaf, Anchor, BookOpen, 
   Maximize, Minimize, RefreshCw, Plug, Clock, Hammer, Target, Layers,
@@ -6,7 +7,8 @@ import {
   Grid as GridIcon, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff,
   Camera, Circle as CircleIcon, Square, Pencil, Moon, Star, Mountain, Tent, 
   Trees, Flag, Compass, Download, Dumbbell, Briefcase, Zap, List, Calendar,
-  Focus, Upload, History, CheckSquare, LayoutList
+  Focus, Upload, History, CheckSquare, LayoutList, Filter, HelpCircle,
+  MessageCircleQuestion, Type
 } from 'lucide-react';
 import { Node, Edge, LogEntry, NodeType, NodeStatus, Root } from '../types/schema';
 import { StorageService } from '../services/storage';
@@ -28,7 +30,7 @@ const THEME = {
     bed: "bg-slate-100 border-slate-300",
     plant: "text-slate-500",
     line: "#94A3B8",
-    watermark: "text-slate-300",
+    watermark: "text-slate-400",
   },
   roots: {
     bg: "bg-[#78716C]", 
@@ -37,12 +39,13 @@ const THEME = {
   }
 };
 
-const ICONS: Record<string, React.ReactNode> = {
+const ICONS: Record<string, React.ReactElement> = {
   Sun: <Sun size={24} />, Moon: <Moon size={24} />, Star: <Star size={24} />,
   Wind: <Wind size={24} />, CloudRain: <CloudRain size={24} />, Mountain: <Mountain size={24} />,
   Tent: <Tent size={24} />, Trees: <Trees size={24} />, Flag: <Flag size={24} />,
   Compass: <Compass size={24} />, Target: <Target size={24} />, Anchor: <Anchor size={24} />,
-  Hammer: <Hammer size={24} />, Briefcase: <Briefcase size={24} />, Dumbbell: <Dumbbell size={24} />
+  Hammer: <Hammer size={24} />, Briefcase: <Briefcase size={24} />, Dumbbell: <Dumbbell size={24} />,
+  Help: <HelpCircle size={24} />
 };
 
 const LIBRARY_COURSES = [
@@ -54,8 +57,7 @@ const LIBRARY_COURSES = [
 
 const LargeIcon: React.FC<{ iconKey?: string, size?: number, colorClass?: string }> = ({ iconKey, size = 80, colorClass = "" }) => {
   if (!iconKey || !ICONS[iconKey]) return <Leaf size={size} className={colorClass} />;
-  const IconComponent = (ICONS[iconKey] as React.ReactElement<any>).type as React.FC<any>;
-  return <IconComponent size={size} className={colorClass} />;
+  return React.cloneElement(ICONS[iconKey], { size, className: colorClass } as any);
 };
 
 const formatTime = (minutes: number) => {
@@ -64,6 +66,18 @@ const formatTime = (minutes: number) => {
 };
 
 // --- SUB-COMPONENTS ---
+
+const LeafMagnitude: React.FC<{ flow: number, maxFlow: number }> = ({ flow, maxFlow }) => {
+  if (flow <= 0) return null;
+  const level = Math.max(1, Math.min(5, Math.ceil((flow / maxFlow) * 5)));
+  return (
+    <div className="flex gap-0.5 justify-center mt-1">
+      {Array.from({ length: level }).map((_, i) => (
+        <Leaf key={i} size={10} fill="#10B981" className="text-emerald-600" />
+      ))}
+    </div>
+  );
+};
 
 const RootFooter: React.FC<{ roots: Root[], expanded: boolean, onToggle: () => void, isRound?: boolean }> = ({ roots, expanded, onToggle, isRound }) => {
   const activeRoots = roots.filter(r => r.label.trim() !== "" || (r.hours && r.hours > 0));
@@ -136,7 +150,7 @@ const EditNodePopover: React.FC<{ node: Node, onClose: () => void, onUpdate: (id
 
    return (
       <div className="absolute z-[200] top-full mt-2 left-1/2 -translate-x-1/2 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 flex flex-col gap-4 animate-in zoom-in-95 cursor-auto text-slate-800 font-sans shadow-2xl" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-         <div className="space-y-1"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Label</label><input type="text" value={node.label} onChange={(e) => onUpdate(node.id, { label: e.target.value })} className="w-full text-xs p-2 border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white text-slate-800 font-sans" /></div>
+         <div className="space-y-1"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Label</label><input type="text" value={node.label} onChange={(e) => onUpdate(node.id, { label: e.target.value })} className="w-full text-xs p-2 border border-slate-200 rounded focus:ring-1 focus:ring-emerald-500 bg-white text-slate-800 font-sans" autoFocus /></div>
          
          <div className="space-y-1"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Debug Hours (Override)</label>
             <div className="grid grid-cols-4 gap-1">
@@ -149,7 +163,7 @@ const EditNodePopover: React.FC<{ node: Node, onClose: () => void, onUpdate: (id
             </div>
          </div>
 
-         <div className="space-y-1 font-sans"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Definition of Done</label><textarea value={node.meta?.description || ""} onChange={(e) => onUpdate(node.id, { meta: { ...node.meta, description: e.target.value } })} className="w-full text-xs p-2 border border-slate-200 rounded resize-none h-16 bg-white text-slate-800 font-sans" /></div>
+         <div className="space-y-1 font-sans"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Description / Definition of Done</label><textarea value={node.meta?.description || ""} onChange={(e) => onUpdate(node.id, { meta: { ...node.meta, description: e.target.value } })} className="w-full text-xs p-2 border border-slate-200 rounded resize-none h-16 bg-white text-slate-800 font-sans" /></div>
          {(node.type === 'hub' || node.type === 'bed') && (
            <div className="space-y-2 border-t pt-2 mt-1 font-sans text-slate-800">
               <label className="text-[9px] font-bold uppercase text-slate-400 flex items-center gap-1 font-sans"><Sprout size={10} /> Historical Roots</label>
@@ -161,23 +175,17 @@ const EditNodePopover: React.FC<{ node: Node, onClose: () => void, onUpdate: (id
               </div>
            </div>
          )}
-         <div className="space-y-1 border-t pt-2 mt-1 font-sans"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Symbol</label><div className="grid grid-cols-6 gap-1 font-sans">{Object.keys(ICONS).map(key => (<button key={key} onClick={() => onUpdate(node.id, { icon_key: key })} className={`p-1 rounded hover:bg-slate-100 flex justify-center ${node.icon_key === key ? 'bg-blue-50 text-blue-500' : 'text-slate-500'} font-sans`}>{React.cloneElement(ICONS[key] as React.ReactElement<any>, { size: 14 })}</button>))}</div></div>
+         <div className="space-y-1 border-t pt-2 mt-1 font-sans"><label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest font-sans">Symbol</label><div className="grid grid-cols-6 gap-1 font-sans">{Object.keys(ICONS).map(key => (<button key={key} onClick={() => onUpdate(node.id, { icon_key: key })} className={`p-1 rounded hover:bg-slate-100 flex justify-center ${node.icon_key === key ? 'bg-blue-50 text-blue-500' : 'text-slate-500'} font-sans`}>{React.cloneElement(ICONS[key], { size: 14 } as any)}</button>))}</div></div>
       </div>
    );
 };
 
-const DoneLog: React.FC<{ isOpen: boolean, logs: LogEntry[], onToggle: () => void, onDragStart: (e: React.DragEvent, course: string) => void }> = ({ isOpen, logs, onToggle, onDragStart }) => {
-   const [search, setSearch] = useState("");
-   const [groupBy, setGroupBy] = useState<'course' | 'date'>('course');
-   const [showSearch, setShowSearch] = useState(false);
-   
+const DoneLog: React.FC<{ isOpen: boolean, logs: LogEntry[], onDragStart: (e: React.DragEvent, course: string) => void, groupBy: 'course' | 'date', sidebarSearch: string }> = ({ isOpen, logs, onDragStart, groupBy, sidebarSearch }) => {
    const groupedLogs = useMemo(() => {
       const groups: Record<string, any> = {};
       const sorted = [...logs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
       sorted.forEach(log => {
-         if (!log.task_name.toLowerCase().includes(search.toLowerCase()) && !log.course_name?.toLowerCase().includes(search.toLowerCase())) return;
-         
+         if (!log.task_name.toLowerCase().includes(sidebarSearch.toLowerCase()) && !log.course_name?.toLowerCase().includes(sidebarSearch.toLowerCase())) return;
          if (groupBy === 'course') {
             const course = log.course_name || "Uncategorized";
             const series = log.series_name || "General";
@@ -191,66 +199,50 @@ const DoneLog: React.FC<{ isOpen: boolean, logs: LogEntry[], onToggle: () => voi
          }
       });
       return groups;
-   }, [logs, search, groupBy]);
+   }, [logs, sidebarSearch, groupBy]);
 
    return (
-      <div className={`absolute top-0 right-0 h-full w-80 bg-slate-50 border-l border-slate-200 shadow-xl transition-transform duration-300 z-[100] flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-         <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white/50">
-            <div><h2 className="text-lg font-serif italic text-slate-800">Done</h2><p className="text-xs text-slate-400 mt-1">Timeline</p></div>
-            <div className="flex gap-1 items-center">
-               <button onClick={() => setGroupBy(groupBy === 'course' ? 'date' : 'course')} className="p-2 rounded-full hover:bg-slate-200 transition-colors text-slate-400 hover:text-slate-600" title={groupBy === 'course' ? "Group by Date" : "Group by Course"}>{groupBy === 'course' ? <LayoutList size={16} /> : <Calendar size={16} />}</button>
-               <button onClick={() => setShowSearch(!showSearch)} className={`p-2 rounded-full transition-colors ${showSearch ? 'bg-emerald-50 text-emerald-600' : 'hover:bg-slate-200 text-slate-400'}`}><Search size={16} /></button>
-               <button onClick={onToggle} className="p-2 rounded-full hover:bg-slate-200 transition-colors ml-1"><X size={16} className="text-slate-500" /></button>
-            </div>
-         </div>
-         {showSearch && (
-            <div className="px-4 py-2 bg-white border-b border-slate-100 animate-in slide-in-from-top-2 duration-200">
-               <input autoFocus type="text" placeholder="Search activities..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-emerald-400 bg-white text-slate-800" />
-            </div>
-         )}
-         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-            {groupBy === 'course' ? (
-               Object.entries(groupedLogs).map(([course, seriesGroup]) => (
-                  <div key={course} className="space-y-2">
-                     <div className="flex items-center gap-2 cursor-grab active:cursor-grabbing hover:bg-white p-1.5 rounded-lg group shadow-sm bg-white/30" draggable onDragStart={(e) => onDragStart(e, course)}>
-                        <Anchor size={12} className="text-slate-400 group-hover:text-emerald-500" />
-                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-600 group-hover:text-emerald-700">{course}</h3>
+      <div className="space-y-6">
+         {groupBy === 'course' ? (
+            Object.entries(groupedLogs).map(([course, seriesGroup]) => (
+               <div key={course} className="space-y-2">
+                  <div className="flex items-center gap-2 cursor-grab active:cursor-grabbing hover:bg-white p-1.5 rounded-lg group shadow-sm bg-white/30" draggable onDragStart={(e) => onDragStart(e, course)}>
+                     <Anchor size={12} className="text-slate-400 group-hover:text-emerald-500" />
+                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-600 group-hover:text-emerald-700">{course}</h3>
+                  </div>
+                  {Object.entries(seriesGroup as any).map(([series, items]) => (
+                     <div key={series} className="pl-2 border-l-2 border-slate-200">
+                        {series !== 'General' && <h4 className="text-[10px] font-bold text-slate-500 mb-1 ml-1">{series}</h4>}
+                        <div className="space-y-1">
+                           {(items as LogEntry[]).map(log => (
+                              <div key={log.id} className="p-2 bg-white rounded border border-slate-100 shadow-sm flex justify-between items-start text-slate-800">
+                                 <div><p className="text-[10px] font-medium text-slate-700">{log.task_name}</p><p className="text-[9px] text-slate-400">{new Date(log.timestamp).toLocaleDateString()}</p></div>
+                                 <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{log.duration_minutes}m</span>
+                              </div>
+                           ))}
+                        </div>
                      </div>
-                     {Object.entries(seriesGroup as any).map(([series, items]) => (
-                        <div key={series} className="pl-2 border-l-2 border-slate-200">
-                           {series !== 'General' && <h4 className="text-[10px] font-bold text-slate-500 mb-1 ml-1">{series}</h4>}
-                           <div className="space-y-1">
-                              {(items as LogEntry[]).map(log => (
-                                 <div key={log.id} className="p-2 bg-white rounded border border-slate-100 shadow-sm flex justify-between items-start">
-                                    <div><p className="text-[10px] font-medium text-slate-700">{log.task_name}</p><p className="text-[9px] text-slate-400">{new Date(log.timestamp).toLocaleDateString()}</p></div>
-                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{log.duration_minutes}m</span>
-                                 </div>
-                              ))}
+                  ))}
+               </div>
+            ))
+         ) : (
+            Object.entries(groupedLogs).map(([date, items]) => (
+               <div key={date} className="space-y-2">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 pl-1 flex items-center gap-2"><Calendar size={10} /> {date}</h3>
+                  <div className="space-y-1">
+                     {(items as LogEntry[]).map(log => (
+                        <div key={log.id} className="p-2 bg-white rounded border border-slate-100 shadow-sm flex justify-between items-start text-slate-800">
+                           <div>
+                              <p className="text-[10px] font-medium text-slate-700">{log.task_name}</p>
+                              {log.course_name && <p className="text-[8px] text-emerald-600 font-bold uppercase tracking-tighter">{log.course_name}</p>}
                            </div>
+                           <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{log.duration_minutes}m</span>
                         </div>
                      ))}
                   </div>
-               ))
-            ) : (
-               Object.entries(groupedLogs).map(([date, items]) => (
-                  <div key={date} className="space-y-2">
-                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 pl-1 flex items-center gap-2"><Calendar size={10} /> {date}</h3>
-                     <div className="space-y-1">
-                        {(items as LogEntry[]).map(log => (
-                           <div key={log.id} className="p-2 bg-white rounded border border-slate-100 shadow-sm flex justify-between items-start">
-                              <div>
-                                 <p className="text-[10px] font-medium text-slate-700">{log.task_name}</p>
-                                 {log.course_name && <p className="text-[8px] text-emerald-600 font-bold uppercase tracking-tighter">{log.course_name}</p>}
-                              </div>
-                              <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{log.duration_minutes}m</span>
-                           </div>
-                        ))}
-                     </div>
-                  </div>
-               ))
-            )}
-            {logs.length === 0 && <div className="text-center text-xs text-slate-400 italic mt-10">No logs found.</div>}
-         </div>
+               </div>
+            ))
+         )}
       </div>
    );
 };
@@ -264,18 +256,23 @@ const DeleteButton: React.FC<{ onClick: (e: React.MouseEvent) => void, position:
 );
 
 const QuickAddModal: React.FC<{ position: {x: number, y: number}, onSelect: (type: NodeType, data?: any) => void }> = ({ position, onSelect }) => {
-  const [view, setView] = useState<'main' | 'resource'>('main');
-  const [search, setSearch] = useState("");
-  const filteredResources = LIBRARY_COURSES.filter(c => c.label.toLowerCase().includes(search.toLowerCase()));
   return (
     <div className="absolute z-[200] bg-white rounded-xl shadow-2xl border border-slate-200 p-2 flex flex-col gap-1 w-48 animate-in zoom-in-95 text-slate-800 font-sans" style={{ left: position.x, top: position.y }} onMouseDown={(e) => e.stopPropagation()}>
-      {view === 'main' ? (
-        <><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-1 font-sans">Add...</p><button onClick={() => onSelect('bed')} className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-lg text-xs font-bold text-blue-700 flex items-center gap-2 font-sans"><Square size={14} /> Goal</button><button onClick={() => setView('resource')} className="w-full text-left px-3 py-2 hover:bg-emerald-50 rounded-lg text-xs font-bold text-emerald-700 flex items-center justify-between font-sans"><div className="flex items-center gap-2 font-sans"><Anchor size={14} /> Resource</div><ChevronDown size={12} /></button></>
-      ) : (
-        <><div className="flex items-center gap-2 px-2 py-1 font-sans"><button onClick={() => setView('main')} className="p-1 hover:bg-slate-100 rounded font-sans"><X size={12} /></button><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">Select Resource</p></div><input autoFocus type="text" placeholder="Search courses..." className="mx-2 my-1 text-[10px] p-1.5 border border-slate-100 rounded bg-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans text-slate-800" value={search} onChange={(e) => setSearch(e.target.value)} /><div className="max-h-40 overflow-y-auto font-sans">{filteredResources.map(r => (<button key={r.id} onClick={() => onSelect('source', r)} className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[10px] font-medium border-b border-slate-50 last:border-0 truncate font-sans">{r.label}</button>))}<button onClick={() => onSelect('source', { label: search || "New Passive", category: 'spring', capacity: 10 })} className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-[10px] font-bold text-emerald-600 italic font-sans">+ Create Passive "{search}"</button></div></>
-      )}
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-1 font-sans">Add...</p>
+      <button onClick={() => onSelect('bed')} className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-lg text-xs font-bold text-blue-700 flex items-center gap-2 font-sans"><Flag size={14} /> Goal</button>
+      <button onClick={() => onSelect('source')} className="w-full text-left px-3 py-2 hover:bg-emerald-50 rounded-lg text-xs font-bold text-emerald-700 flex items-center gap-2 font-sans"><Anchor size={14} /> Resource</button>
+      <button onClick={() => onSelect('question')} className="w-full text-left px-3 py-2 hover:bg-amber-50 rounded-lg text-xs font-bold text-amber-700 flex items-center gap-2 font-sans"><MessageCircleQuestion size={14} /> Question</button>
     </div>
   );
+};
+
+// --- UI TUNING CONFIG (CENTRALIZED) ---
+const UI_CONFIG = {
+  hub: { title: 16, desc: 10, gap: 1 },
+  bed: { title: 15, desc: 10, gap: 0 }, // Reduced gap for natural feel
+  resource: { title: 12.5, desc: 9.5, gap: 2, lineHeight: 1.1 }, // Added lineHeight tuning
+  question: { title: 11, desc: 8, gap: 2 },
+  scaling: { title: 2, desc: 1 } // Multipliers for the global scale toggle
 };
 
 export const SanctuaryMap: React.FC = () => {
@@ -287,11 +284,19 @@ export const SanctuaryMap: React.FC = () => {
     { id: 'h1', label: "Learn Rust", type: 'plant', days: 45, tag: "Skill" },
     { id: 'h2', label: "Marathon Training", type: 'bed', days: 60, tag: "Goal" },
   ]);
-  const [showSeedBank, setShowSeedBank] = useState(false);
-  const [showDoneLog, setShowDoneLog] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'none' | 'archive' | 'done'>('none');
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [sidebarShowSearch, setSidebarShowSearch] = useState(false);
+  const [doneGroupBy, setDoneGroupBy] = useState<'course' | 'date'>('course');
+
   const [visibilityMode, setVisibilityMode] = useState<0 | 1 | 2>(() => {
     const stored = localStorage.getItem('lt_visibilityMode');
     return stored ? Number(stored) as 0|1|2 : 0; 
+  });
+  const [goalsOnly, setGoalsOnly] = useState(false);
+  const [fontSizeScale, setFontSizeScale] = useState<0 | 1 | 2>(() => {
+    const stored = localStorage.getItem('lt_fontSizeScale');
+    return stored ? Number(stored) as 0|1|2 : 0;
   });
   const [viewState, setViewState] = useState({ x: 0, y: 0, zoom: 1 });
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
@@ -299,6 +304,8 @@ export const SanctuaryMap: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [expandedRoots, setExpandedRoots] = useState<Record<string, boolean>>({});
   const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
+  const [dragStartClientPos, setDragStartClientPos] = useState({ x: 0, y: 0 });
+  const [hasDragged, setHasDragged] = useState(false);
   const [timeRange, setTimeRange] = useState<'D' | 'W' | 'M' | 'Y' | 'Custom'>('M');
   const [customDateRange, setCustomDateRange] = useState<{start: string, end: string}>({ start: new Date().toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
   const [magnetMode, setMagnetMode] = useState(false);
@@ -308,6 +315,10 @@ export const SanctuaryMap: React.FC = () => {
   const [editingNode, setEditingNode] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState<{x: number, y: number, sourceId?: string} | null>(null);
   const [flashingNode, setFlashingNode] = useState<string | null>(null);
+  const [flowViz, setFlowViz] = useState(() => {
+    const stored = localStorage.getItem('lt_flowViz');
+    return stored === 'true';
+  });
 
   const saveHistory = useCallback(() => { setHistory(prev => { const newHistory = [...prev, { nodes, edges }]; if (newHistory.length > 20) return newHistory.slice(1); return newHistory; }); }, [nodes, edges]);
   const undo = useCallback(() => { setHistory(prev => { if (prev.length === 0) return prev; const lastState = prev[prev.length - 1]; setNodes(lastState.nodes); setEdges(lastState.edges); return prev.slice(0, -1); }); }, []);
@@ -324,20 +335,28 @@ export const SanctuaryMap: React.FC = () => {
   }, [selectedNode, editingNode, undo, saveHistory]);
 
   const INITIAL_NODES: Node[] = useMemo(() => [
-    { id: 'g1', type: 'hub', x: 600, y: 100, label: "Life Lived Well", status: 'active', icon_key: 'Sun', meta: { description: "Overall life satisfaction", roots: [{id: 'r1', label: '2025 Retrospective', hours: 40}] } },
-    { id: 's1', type: 'bed', x: 200, y: 350, label: "One Day Work Week", status: 'active', icon_key: 'Mountain', meta: { description: "Freedom and efficiency" } },
-    { id: 's2', type: 'bed', x: 600, y: 350, label: "Arts & Creation", status: 'active', icon_key: 'Trees', meta: { description: "Self expression" } },
-    { id: 's3', type: 'bed', x: 1000, y: 350, label: "Good Times & Memories", status: 'dormant', icon_key: 'Tent' },
-    { id: 's1-1', type: 'bed', x: 100, y: 650, label: "Financial Freedom", status: 'active', icon_key: 'Target' },
-    { id: 's1-2', type: 'bed', x: 300, y: 650, label: "Location Independence", status: 'active', icon_key: 'Compass' },
-    { id: 'm1', type: 'plant', x: 600, y: 650, label: "Create Illustration Book", status: 'active' },
-    { id: 'r1', type: 'source', x: 100, y: 900, label: "My Day Job", status: 'active', meta: { category: 'spring', capacity: 40 }, icon_key: 'Briefcase' },
-    { id: 'r2', type: 'source', x: 300, y: 900, label: "Passive Income Stream", status: 'active', meta: { category: 'spring', capacity: 5 } },
-    { id: 'r3', type: 'source', x: 600, y: 900, label: "Domestika: Illustration", status: 'active', meta: { category: 'course', capacity: 10 } },
+    { id: 'g1', type: 'hub', x: 600, y: 100, label: "Life Lived Well", status: 'active', icon_key: 'Sun', meta: { description: "Overall life satisfaction", roots: [{id: 'r1', label: '2025 Retrospective', hours: 40}] }, createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 's1', type: 'bed', x: 200, y: 300, label: "One Day Work Week", status: 'active', icon_key: 'Mountain', meta: { description: "Freedom and efficiency" }, createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 's2', type: 'bed', x: 600, y: 300, label: "Arts & Creation", status: 'active', icon_key: 'Trees', meta: { description: "Self expression" }, createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 's3', type: 'bed', x: 1000, y: 300, label: "Good Times & Memories", status: 'dormant', icon_key: 'Tent', createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 's1-1', type: 'bed', x: 100, y: 500, label: "Financial Freedom", status: 'active', icon_key: 'Target', createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 's1-2', type: 'bed', x: 300, y: 500, label: "Location Independence", status: 'active', icon_key: 'Compass', createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 'm1', type: 'plant', x: 600, y: 500, label: "Create Illustration Book", status: 'active', createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 'r1', type: 'source', x: 100, y: 700, label: "My Day Job", status: 'active', meta: { category: 'spring', capacity: 40 }, icon_key: 'Briefcase', createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 'r2', type: 'source', x: 300, y: 700, label: "Passive Income Stream", status: 'active', meta: { category: 'spring', capacity: 5 }, createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
+    { id: 'r3', type: 'source', x: 600, y: 700, label: "Domestika: Illustration", status: 'active', meta: { category: 'course', capacity: 10 }, createdAt: new Date(Date.now() - 86400000 * 30).toISOString() },
   ], []);
 
   const INITIAL_EDGES: Edge[] = useMemo(() => [
-    { source_id: 'r1', target_id: 's1-1', weight: 3, type: 'active_stream' }, { source_id: 'r2', target_id: 's1-1', weight: 1, type: 'active_stream' }, { source_id: 'r3', target_id: 'm1', weight: 2, type: 'active_stream' }, { source_id: 's1-1', target_id: 's1', weight: 3, type: 'active_stream' }, { source_id: 's1-2', target_id: 's1', weight: 2, type: 'active_stream' }, { source_id: 'm1', target_id: 's2', weight: 3, type: 'active_stream' }, { source_id: 's1', target_id: 'g1', weight: 3, type: 'active_stream' }, { source_id: 's2', target_id: 'g1', weight: 2, type: 'active_stream' }, { source_id: 's3', target_id: 'g1', weight: 1, type: 'active_stream' },
+    { source_id: 'r1', target_id: 's1-1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 'r2', target_id: 's1-1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 'r3', target_id: 'm1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 's1-1', target_id: 's1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 's1-2', target_id: 's1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 'm1', target_id: 's2', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 's1', target_id: 'g1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 's2', target_id: 'g1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' }, 
+    { source_id: 's3', target_id: 'g1', source_socket: 'top', target_socket: 'bottom', weight: 1, type: 'active_stream' },
   ], []);
 
   const INITIAL_LOGS: LogEntry[] = useMemo(() => {
@@ -365,30 +384,39 @@ export const SanctuaryMap: React.FC = () => {
   }, [INITIAL_NODES, INITIAL_EDGES, INITIAL_LOGS]);
 
   const centerOnGraph = useCallback((nodesToCenter: Node[]) => {
-    if (nodesToCenter.length === 0) return;
+    const visibleNodes = goalsOnly ? nodesToCenter.filter(n => n.type === 'hub' || n.type === 'bed') : nodesToCenter;
+    if (visibleNodes.length === 0) return;
     const padding = 150;
-    const minX = Math.min(...nodesToCenter.map(n => n.x)) - padding; const maxX = Math.max(...nodesToCenter.map(n => n.x)) + padding;
-    const minY = Math.min(...nodesToCenter.map(n => n.y)) - padding; const maxY = Math.max(...nodesToCenter.map(n => n.y)) + padding;
+    const minX = Math.min(...visibleNodes.map(n => n.x)) - padding; const maxX = Math.max(...visibleNodes.map(n => n.x)) + padding;
+    const minY = Math.min(...visibleNodes.map(n => n.y)) - padding; const maxY = Math.max(...visibleNodes.map(n => n.y)) + padding;
     
     let availableWidth = window.innerWidth;
-    if (showSeedBank) availableWidth -= 256; 
-    if (showDoneLog) availableWidth -= 320; 
+    if (sidebarTab !== 'none') availableWidth -= 320; 
     
     const zoom = Math.min(Math.min(availableWidth / (maxX - minX), window.innerHeight / (maxY - minY)), 1);
     let shiftX = 0;
-    if (showSeedBank) shiftX -= 128;
-    if (showDoneLog) shiftX -= 160;
+    if (sidebarTab !== 'none') shiftX -= 160;
 
     setViewState({ zoom, x: (window.innerWidth / 2) + shiftX - ((minX + maxX) / 2) * zoom, y: window.innerHeight / 2 - ((minY + maxY) / 2) * zoom });
-  }, [showSeedBank, showDoneLog]);
+  }, [sidebarTab, goalsOnly]);
 
-  const { nodeInflows, edgeFlows } = useMemo(() => { 
-     return calculateFlow(nodes, edges, logs, timeRange as any, customDateRange); 
-  }, [nodes, edges, logs, timeRange, customDateRange]);
+  const flowData = useMemo(() => calculateFlow(nodes, edges, logs, timeRange as any, customDateRange), [nodes, edges, logs, timeRange, customDateRange]);
+  const nodeInflows = flowData.nodeInflows;
+  const edgeFlows = flowData.edgeFlows;
+
+  const yearFlowData = useMemo(() => calculateFlow(nodes, edges, logs, 'Y'), [nodes, edges, logs]);
+  const yearInflows = yearFlowData.nodeInflows;
+
+  const maxInflow = useMemo(() => {
+     const values = Object.values(nodeInflows);
+     return values.length > 0 ? Math.max(...values) : 1;
+  }, [nodeInflows]);
 
   useEffect(() => { if (nodes.length > 0) StorageService.saveNodes(nodes); }, [nodes]);
   useEffect(() => { if (edges.length > 0) StorageService.saveEdges(edges); }, [edges]);
   useEffect(() => { localStorage.setItem('lt_visibilityMode', String(visibilityMode)); }, [visibilityMode]);
+  useEffect(() => { localStorage.setItem('lt_fontSizeScale', String(fontSizeScale)); }, [fontSizeScale]);
+  useEffect(() => { localStorage.setItem('lt_flowViz', String(flowViz)); }, [flowViz]);
 
   useEffect(() => {
     if (editingNode) {
@@ -398,7 +426,7 @@ export const SanctuaryMap: React.FC = () => {
         if (nodeBottomScreen + popoverHeight > window.innerHeight - 50) { setViewState(prev => ({ ...prev, y: prev.y - ((nodeBottomScreen + popoverHeight) - (window.innerHeight - 50)) })); }
       }
     }
-  }, [editingNode, viewState.zoom, viewState.y, nodes]);
+  }, [editingNode, viewState.zoom]); 
 
   const getPassiveAncestors = useCallback((nodeId: string) => {
     const ancestors = new Set<string>();
@@ -407,7 +435,7 @@ export const SanctuaryMap: React.FC = () => {
       const current = stack.pop()!;
       edges.filter(e => e.target_id === current).forEach(e => {
         const sourceNode = nodes.find(n => n.id === e.source_id);
-        if (sourceNode?.meta?.category === 'spring') { ancestors.add(sourceNode.id); }
+        if (sourceNode?.type === 'source' && (sourceNode.meta?.category === 'spring' && (sourceNode.meta?.capacity || 0) > 0)) { ancestors.add(sourceNode.id); }
         stack.push(e.source_id);
       });
     }
@@ -421,6 +449,15 @@ export const SanctuaryMap: React.FC = () => {
     return new Date(sorted[0].timestamp);
   }, [logs]);
 
+  const getDescendants = useCallback((nodeId: string) => {
+    const children = new Set<string>(); const stack = [nodeId];
+    while(stack.length > 0) {
+      const current = stack.pop()!;
+      edges.filter(e => e.target_id === current).forEach(e => { if (!children.has(e.source_id)) { children.add(e.source_id); stack.push(e.source_id); } });
+    }
+    return children;
+  }, [edges]);
+
   const deleteNode = (id: string) => {
     const node = nodes.find(n => n.id === id);
     if (node) { const tag = (node.type === 'hub' || node.type === 'bed') ? 'Goal' : 'Resource'; setSeedItems(prev => [...prev, { id: node.id, label: node.label, type: node.type, days: 30, tag }]); }
@@ -428,38 +465,86 @@ export const SanctuaryMap: React.FC = () => {
     if (selectedNode === id) setSelectedNode(null);
   };
 
-  const deleteEdge = (sourceId: string, targetId: string) => { saveHistory(); setEdges(prev => prev.filter(e => !(e.source_id === sourceId && e.target_id === targetId))); };
+  const deleteEdge = (sourceId: string, targetId: string) => { 
+    saveHistory(); 
+    setEdges(prev => prev.filter(e => !(e.source_id === sourceId && e.target_id === targetId))); 
+  };
 
   const cycleEdgeWeight = (sourceId: string, targetId: string) => {
     const outgoingCount = edges.filter(e => e.source_id === sourceId).length;
     if (outgoingCount <= 1) return;
-    saveHistory(); setEdges(prev => prev.map(e => (e.source_id === sourceId && e.target_id === targetId) ? { ...e, weight: ((e.weight % 3) + 1) as any } : e));
+    saveHistory(); setEdges(prev => prev.map(e => (e.source_id === sourceId && e.target_id === targetId) ? { ...e, weight: e.weight === 1 ? 2 : 1 as any } : e));
   };
 
   const startLink = (sourceId: string, x: number, y: number, socket: 'top'|'bottom') => { setLinking({ sourceId, startX: x, startY: y, currentX: x, currentY: y, socket }); };
 
-  const finishLink = (targetId: string, droppedSocket: 'top'|'bottom'|'auto') => {
-    if (!linking || linking.sourceId === targetId) return;
-    const exists = edges.some(e => (e.source_id === linking.sourceId && e.target_id === targetId) || (e.source_id === targetId && e.target_id === linking.sourceId));
-    if (exists) { setLinking(null); return; }
+  const finishLink = (targetId: string, droppedSocket: 'top'|'bottom') => {
+    if (!linking || linking.sourceId === targetId) {
+      setLinking(null);
+      return; 
+    }
+    
+    // Check for existing edges in either direction to prevent duplicates
+    const exists = edges.some(e => 
+      (e.source_id === linking.sourceId && e.target_id === targetId) || 
+      (e.source_id === targetId && e.target_id === linking.sourceId)
+    );
+    
+    if (exists) { 
+      setLinking(null); 
+      return; 
+    }
+    
     saveHistory();
-    let source = linking.sourceId; let target = targetId;
-    if (linking.socket === 'top' && droppedSocket === 'bottom') { source = targetId; target = linking.sourceId; } 
-    else if (linking.socket === 'bottom' && droppedSocket === 'top') { source = linking.sourceId; target = targetId; }
-    setEdges(prev => [...prev, { source_id: source, target_id: target, weight: 2, type: 'active_stream' }]);
+    const SS = linking.socket; 
+    const ES = droppedSocket;
+    let sourceId = linking.sourceId; 
+    let targetNodeId = targetId;
+    let sourceSoc: 'top' | 'bottom' = SS;
+    let targetSoc: 'top' | 'bottom' = ES;
+
+    // RULE 1: lower -> lower => E1 flows to E2
+    if (SS === 'bottom' && ES === 'bottom') { sourceId = linking.sourceId; targetNodeId = targetId; sourceSoc = 'bottom'; targetSoc = 'bottom'; }
+    // RULE 2: lower -> upper => E2 flows to E1
+    else if (SS === 'bottom' && ES === 'top') { sourceId = targetId; targetNodeId = linking.sourceId; sourceSoc = 'top'; targetSoc = 'bottom'; }
+    // RULE 3: upper -> lower => E1 flows to E2
+    else if (SS === 'top' && ES === 'bottom') { sourceId = linking.sourceId; targetNodeId = targetId; sourceSoc = 'top'; targetSoc = 'bottom'; }
+    // RULE 4: upper -> upper => E1 flows to E2
+    else if (SS === 'top' && ES === 'top') { sourceId = linking.sourceId; targetNodeId = targetId; sourceSoc = 'top'; targetSoc = 'top'; }
+
+    setEdges(prev => [...prev, { source_id: sourceId, target_id: targetNodeId, source_socket: sourceSoc, target_socket: targetSoc, weight: 1, type: 'active_stream' }]);
     setLinking(null);
   };
 
   const updateNode = (id: string, data: Partial<Node>) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, ...data } : n)); };
 
-  const handleMouseDown = (e: React.MouseEvent) => { if (editingNode) setEditingNode(null); if (quickAdd) setQuickAdd(null); setSelectedNode(null); setIsDraggingCanvas(true); setLastPos({ x: e.clientX, y: e.clientY }); };
-  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => { e.stopPropagation(); setSelectedNode(nodeId); setIsDraggingNode(nodeId); setLastPos({ x: e.clientX, y: e.clientY }); };
+  const handleMouseDown = (e: React.MouseEvent) => { 
+    if (editingNode) setEditingNode(null); 
+    if (quickAdd) setQuickAdd(null); 
+    setSelectedNode(null); 
+    setIsDraggingCanvas(true); 
+    setLastPos({ x: e.clientX, y: e.clientY }); 
+  };
+
+  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => { 
+    e.stopPropagation(); 
+    if (editingNode && editingNode !== nodeId) setEditingNode(null);
+    setDragStartClientPos({ x: e.clientX, y: e.clientY });
+    setHasDragged(false);
+    setSelectedNode(nodeId); 
+    setIsDraggingNode(nodeId); 
+    setLastPos({ x: e.clientX, y: e.clientY }); 
+  };
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (linking) { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setLinking({ ...linking, currentX: (e.clientX - rect.left - viewState.x) / viewState.zoom, currentY: (e.clientY - rect.top - viewState.y) / viewState.zoom }); return; }
     if (isDraggingNode) {
       const dx = (e.clientX - lastPos.x) / viewState.zoom; const dy = (e.clientY - lastPos.y) / viewState.zoom;
-      setNodes(prev => prev.map(n => n.id === isDraggingNode ? { ...n, x: n.x + dx, y: n.y + dy } : n));
+      const totalMoved = Math.sqrt(Math.pow(e.clientX - dragStartClientPos.x, 2) + Math.pow(e.clientY - dragStartClientPos.y, 2));
+      if (totalMoved > 5) setHasDragged(true);
+      const nodesToMove = new Set([isDraggingNode]);
+      if (magnetMode || e.ctrlKey) { getDescendants(isDraggingNode).forEach(id => nodesToMove.add(id)); }
+      setNodes(prev => prev.map(n => nodesToMove.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n));
       setLastPos({ x: e.clientX, y: e.clientY });
       return;
     }
@@ -468,22 +553,75 @@ export const SanctuaryMap: React.FC = () => {
 
   const handleMouseUp = (e: React.MouseEvent) => {
     if (linking) {
-      const isBg = (e.target as HTMLElement).classList.contains('canvas-bg');
-      if (isBg) { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setQuickAdd({ x: (e.clientX - rect.left - viewState.x) / viewState.zoom, y: (e.clientY - rect.top - viewState.y) / viewState.zoom, sourceId: linking.sourceId }); }
+      const targetNode = nodes.find(n => {
+        const dim = getNodeDimensions(n.type, !!expandedRoots[n.id]);
+        const padding = 20;
+        const rect = { 
+          left: n.x - dim.w/2 - padding, 
+          top: n.y - dim.h/2 - padding, 
+          right: n.x + dim.w/2 + padding, 
+          bottom: n.y + dim.h/2 + padding 
+        };
+        const mx = linking.currentX; const my = linking.currentY;
+        return mx >= rect.left && mx <= rect.right && my >= rect.top && my <= rect.bottom;
+      });
+      if (targetNode) {
+        const isTopHalf = linking.currentY < targetNode.y;
+        finishLink(targetNode.id, isTopHalf ? 'top' : 'bottom');
+      } else {
+        const isBg = (e.target as HTMLElement).classList.contains('canvas-bg');
+        if (isBg) { const rect = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect(); setQuickAdd({ x: (e.clientX - rect.left - viewState.x) / viewState.zoom, y: (e.clientY - rect.top - viewState.y) / viewState.zoom, sourceId: linking.sourceId }); }
+      }
     }
+    
+    if (isDraggingNode && !hasDragged) {
+       const node = nodes.find(n => n.id === isDraggingNode);
+       if (node) {
+          if (node.type === 'bed' && node.label === 'New Goal') {
+             updateNode(node.id, { type: 'source', label: 'New Resource', meta: { ...node.meta, category: 'course', capacity: 10 } });
+             setEditingNode(node.id);
+          } else if (node.type === 'source' && node.label === 'New Resource') {
+             updateNode(node.id, { type: 'bed', label: 'New Goal' });
+             setEditingNode(null);
+          }
+       }
+    }
+
     if (isDraggingNode) saveHistory();
     setIsDraggingCanvas(false); setIsDraggingNode(null); setLinking(null);
   };
 
   const handleCanvasDoubleClick = (e: React.MouseEvent) => { if (!(e.target as HTMLElement).classList.contains('canvas-bg')) return; const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setQuickAdd({ x: (e.clientX - rect.left - viewState.x) / viewState.zoom, y: (e.clientY - rect.top - viewState.y) / viewState.zoom }); };
 
+  const handleWheel = (e: React.WheelEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomSpeed = 0.001;
+    const delta = -e.deltaY;
+    const factor = Math.pow(1.1, delta / 100);
+    const newZoom = Math.max(0.1, Math.min(3, viewState.zoom * factor));
+    
+    if (newZoom !== viewState.zoom) {
+      const scaleChange = newZoom / viewState.zoom;
+      setViewState(prev => ({
+        zoom: newZoom,
+        x: mouseX - (mouseX - prev.x) * scaleChange,
+        y: mouseY - (mouseY - prev.y) * scaleChange
+      }));
+    }
+  };
+
   const handleNodeDoubleClick = (e: React.MouseEvent, node: Node) => {
-    e.stopPropagation(); if (editingNode === node.id) { setEditingNode(null); return; }
-    if ((e.target as HTMLElement).classList.contains('hit-central') || node.type === 'source' || node.type === 'plant') { setEditingNode(node.id); } 
+    e.stopPropagation(); 
+    if ((node.label === 'New Goal' || node.label === 'New Resource')) { setEditingNode(node.id); return; }
+    if (editingNode === node.id) { setEditingNode(null); return; }
+    if ((e.target as HTMLElement).classList.contains('hit-central') || node.type === 'source' || node.type === 'plant' || node.type === 'question') { setEditingNode(node.id); } 
     else if (node.type === 'hub' || node.type === 'bed') { saveHistory(); updateNode(node.id, { type: node.type === 'hub' ? 'bed' : 'hub' }); }
   };
 
-  const handleCreateNode = (type: NodeType, extraData?: any) => { if (!quickAdd) return; saveHistory(); const newNodeId = `n-${Date.now()}`; setNodes(prev => [...prev, { id: newNodeId, type, x: quickAdd.x, y: quickAdd.y, label: extraData?.label || `New ${type}`, status: 'active', meta: extraData ? { category: extraData.category, capacity: extraData.capacity } : undefined }]); if (quickAdd.sourceId) { setEdges(prev => [...prev, { source_id: quickAdd.sourceId!, target_id: newNodeId, weight: 2, type: 'active_stream' }]); } setQuickAdd(null); };
+  const handleCreateNode = (type: NodeType, extraData?: any) => { if (!quickAdd) return; saveHistory(); const newNodeId = `n-${Date.now()}`; setNodes(prev => [...prev, { id: newNodeId, type, x: quickAdd.x, y: quickAdd.y, label: extraData?.label || (type === 'question' ? 'Open Question?' : (type === 'source' ? 'New Resource' : 'New Goal')), status: 'active', createdAt: new Date().toISOString(), meta: extraData ? { category: extraData.category || 'course', capacity: extraData.capacity, description: extraData.description } : undefined }]); if (quickAdd.sourceId) { setEdges(prev => [...prev, { source_id: quickAdd.sourceId!, target_id: newNodeId, source_socket: 'bottom', target_socket: 'top', weight: 1, type: 'active_stream' }]); } setQuickAdd(null); };
 
   const handleSeedDragStart = (e: React.DragEvent, item: any) => { e.dataTransfer.setData("seedItem", JSON.stringify(item)); };
   
@@ -498,7 +636,7 @@ export const SanctuaryMap: React.FC = () => {
     if (seedData) {
       saveHistory();
       const item = JSON.parse(seedData);
-      setNodes(prev => [...prev, { id: `n-${Date.now()}`, type: item.type === 'bed' ? 'bed' : 'plant', x, y, label: item.label, status: 'active' }]);
+      setNodes(prev => [...prev, { id: `n-${Date.now()}`, type: item.type === 'bed' ? 'bed' : 'plant', x, y, label: item.label, status: 'active', createdAt: new Date().toISOString() }]);
       setSeedItems(prev => prev.filter(i => i.id !== item.id));
     } else if (doneCourse) {
       const existing = nodes.find(n => n.label.toLowerCase() === doneCourse.toLowerCase());
@@ -508,57 +646,73 @@ export const SanctuaryMap: React.FC = () => {
         setTimeout(() => setFlashingNode(null), 3000); 
       } else {
         saveHistory();
-        setNodes(prev => [...prev, { id: `n-${Date.now()}`, type: 'source', x, y, label: doneCourse, status: 'active', meta: { category: 'spring', capacity: 0 } }]);
+        setNodes(prev => [...prev, { id: `n-${Date.now()}`, type: 'source', x, y, label: doneCourse, status: 'active', createdAt: new Date().toISOString(), meta: { category: 'course', capacity: 0 } }]);
       }
     }
   };
 
-  const handleDropOnSeedBank = (e: React.DragEvent) => { if (isDraggingNode) { deleteNode(isDraggingNode); setIsDraggingNode(null); } };
+  const handleDropOnSidebar = (e: React.DragEvent) => { if (isDraggingNode) { deleteNode(isDraggingNode); setIsDraggingNode(null); } };
 
   const handleReset = async () => { if (window.confirm("Reset map to defaults?")) { await StorageService.clearAll(); window.location.reload(); } };
 
   const handleExportCSV = () => {
     try {
-      let csv = "type,id,label,x,y,status,meta\n";
-      nodes.forEach(n => csv += `node,${n.id},"${n.label}",${n.x},${n.y},${n.status},"${JSON.stringify(n.meta).replace(/"/g, '""')}"\n`);
-      edges.forEach(e => csv += `edge,,${e.source_id}->${e.target_id},,,active_stream,${e.weight}\n`);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      let csv = "type,id,label,x,y,status,meta,node_type,source_socket,target_socket\n";
+      nodes.forEach(n => {
+        const metaStr = n.meta ? JSON.stringify(n.meta).replace(/"/g, '""') : "{}";
+        csv += `node,${n.id},"${n.label}",${n.x},${n.y},${n.status},"${metaStr}",${n.type},,\n`;
+      });
+      edges.forEach(e => csv += `edge,,${e.source_id}->${e.target_id},,,active_stream,${e.weight},,${e.source_socket || 'bottom'},${e.target_socket || 'top'}\n`);
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
-      const link = document.body.appendChild(document.createElement('a'));
-      link.href = url;
-      link.download = `life-map-${new Date().toISOString().split('T')[0]}.csv`;
+      const link = document.createElement('a');
+      link.href = url; link.setAttribute('download', `life-map-${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
       link.click();
-      setTimeout(() => document.body.removeChild(link), 100);
+      setTimeout(() => { document.body.removeChild(link); window.URL.revokeObjectURL(url); }, 100);
     } catch (err) { console.error("Export failed", err); }
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split('\n');
-      const newNodes: Node[] = []; const newEdges: Edge[] = [];
-      lines.slice(1).forEach(line => {
-        if (!line.trim()) return;
-        const [type, id, label, x, y, status, metaRaw] = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-        if (type === 'node') {
-           newNodes.push({ id, label: label.replace(/"/g, ''), x: Number(x), y: Number(y), status: status as any, type: id.startsWith('g') ? 'hub' : id.startsWith('s') ? 'bed' : id.startsWith('m') ? 'plant' : 'source', meta: JSON.parse(metaRaw.replace(/"/g, '')) });
-        } else if (type === 'edge') {
-           const [sid, tid] = label.split('->');
-           newEdges.push({ source_id: sid, target_id: tid, weight: Number(metaRaw) as any, type: 'active_stream' });
-        }
-      });
-      if (newNodes.length) { setNodes(newNodes); setEdges(newEdges); saveHistory(); }
-    };
-    reader.readAsText(file);
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true, encoding: "UTF-8",
+      complete: (results) => {
+        const newNodes: Node[] = []; const newEdges: Edge[] = [];
+        results.data.forEach((row: any) => {
+          if (!row.type) return;
+          if (row.type === 'node') {
+             try {
+               const meta = row.meta ? JSON.parse(row.meta) : {};
+               let type: NodeType = row.node_type as NodeType;
+               if (!type) {
+                  const id = row.id || "";
+                  type = id.startsWith('g') ? 'hub' : id.startsWith('s') ? 'bed' : id.startsWith('m') ? 'plant' : id.startsWith('q') ? 'question' : id.startsWith('r') ? 'source' : 'bed';
+               }
+               newNodes.push({ id: row.id, label: row.label, type, x: Number(row.x), y: Number(row.y), status: row.status as NodeStatus, meta });
+             } catch (err) { console.error("Failed to parse node row", row, err); }
+          } else if (row.type === 'edge') {
+             if (!row.label || !row.label.includes('->')) return;
+             const [source, target] = row.label.split('->');
+             newEdges.push({ 
+               source_id: source, 
+               target_id: target, 
+               weight: Number(row.meta) || 1, 
+               type: 'active_stream',
+               source_socket: (row.source_socket as any) || 'bottom',
+               target_socket: (row.target_socket as any) || 'top'
+             });
+          }
+        });
+        if (newNodes.length > 0) { setNodes(newNodes); setEdges(newEdges); saveHistory(); }
+      },
+      error: (err) => { console.error("CSV Parse Error:", err); alert("Failed to parse CSV file."); }
+    });
   };
 
-  const handleDoneDragStart = (e: React.DragEvent, course: string) => {
-    e.dataTransfer.setData("doneCourse", course);
-  };
-
+  const handleDoneDragStart = (e: React.DragEvent, course: string) => { e.dataTransfer.setData("doneCourse", course); };
   const today = new Date().toLocaleDateString('en-CA');
+  const handleAlignGrid = () => { setNodes(prev => prev.map(n => ({ ...n, x: Math.round(n.x/50)*50, y: Math.round(n.y/50)*50 }))); };
 
   return (
     <div className={`w-full h-full relative overflow-hidden select-none ${THEME.active.bg} text-slate-800 font-sans`}>
@@ -570,10 +724,7 @@ export const SanctuaryMap: React.FC = () => {
           75% { border-color: #fbbf24; box-shadow: -5px 5px 10px #fcd34d; }
           100% { border-color: #f97316; box-shadow: 0 0 10px #fb923c; }
         }
-        .flash-active {
-          animation: border-chase 1s linear infinite;
-          border-width: 4px !important;
-        }
+        .flash-active { animation: border-chase 1s linear infinite; border-width: 4px !important; }
       `}</style>
       <div className="absolute inset-0 pointer-events-none opacity-5 canvas-bg" style={{ backgroundImage: `radial-gradient(#000 1px, transparent 1px)`, backgroundSize: '24px 24px', backgroundPosition: `${viewState.x}px ${viewState.y}px` }} />
       <div className={`absolute bottom-4 right-4 pointer-events-none font-serif italic text-4xl opacity-50 z-0 ${snapshotMode ? 'text-slate-600 opacity-80' : 'text-slate-300'}`}>{today}</div>
@@ -586,7 +737,7 @@ export const SanctuaryMap: React.FC = () => {
                   <div className="h-px w-8 bg-slate-300"></div>
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400 font-sans">Ecosystem</p>
                   <button onClick={() => setMagnetMode(!magnetMode)} className={`ml-4 p-1.5 rounded-md border transition-all ${magnetMode || isCtrlPressed ? 'bg-blue-500 border-blue-600 text-white shadow-md' : 'bg-white/50 border-transparent text-slate-400 hover:text-slate-600'}`} title="Magnet Mode"><Magnet size={14} /></button>
-                  <button onClick={() => setNodes(prev => prev.map(n => ({ ...n, x: Math.round(n.x/50)*50, y: Math.round(n.y/50)*50 })))} className="ml-2 p-1.5 rounded-md border bg-white/50 border-transparent text-slate-400 hover:text-slate-600 font-sans" title="Align Grid"><GridIcon size={14} /></button>
+                  <button onClick={handleAlignGrid} className="ml-2 p-1.5 rounded-md border bg-white/50 border-transparent text-slate-400 hover:text-slate-600 font-sans" title="Align Grid"><GridIcon size={14} /></button>
                   <button onClick={() => centerOnGraph(nodes)} className="ml-2 p-1.5 rounded-md border bg-white/50 border-transparent text-slate-400 hover:text-slate-600 font-sans" title="Center View"><Focus size={14} /></button>
                </div>
             )}
@@ -594,78 +745,156 @@ export const SanctuaryMap: React.FC = () => {
          </div>
       </div>
 
-      <div className="w-full h-full cursor-grab active:cursor-grabbing canvas-bg relative font-sans" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onDoubleClick={handleCanvasDoubleClick} onDragOver={(e) => e.preventDefault()} onDrop={handleDropOnCanvas}>
+      <div className="w-full h-full cursor-grab active:cursor-grabbing canvas-bg relative font-sans" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onDoubleClick={handleCanvasDoubleClick} onWheel={handleWheel} onDragOver={(e) => e.preventDefault()} onDrop={handleDropOnCanvas}>
         <div style={{ transform: `translate(${viewState.x}px, ${viewState.y}px) scale(${viewState.zoom})`, transformOrigin: '0 0' }} className="absolute inset-0 pointer-events-none font-sans">
           <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible font-sans">
              {edges.map((edge, i) => {
                 const startNode = nodes.find(n => n.id === edge.source_id); const endNode = nodes.find(n => n.id === edge.target_id);
                 if (!startNode || !endNode) return null;
-                const isExpanded = !!expandedRoots[startNode.id];
-                const startPoint = getDockingPoint(startNode, endNode, isExpanded); const endPoint = getDockingPoint(endNode, startNode, !!expandedRoots[endNode.id]);
+                const isGoal = (n: Node) => n.type === 'hub' || n.type === 'bed';
+                if (goalsOnly && (!isGoal(startNode) || !isGoal(endNode))) return null;
+
+                const startRoots = (startNode.meta?.roots || []).filter(r => r.label.trim() !== "" || (r.hours && r.hours > 0));
+                const endRoots = (endNode.meta?.roots || []).filter(r => r.label.trim() !== "" || (r.hours && r.hours > 0));
+                const startPoint = getDockingPoint(startNode, edge.source_socket || 'bottom', !!expandedRoots[startNode.id], startRoots.length); 
+                const endPoint = getDockingPoint(endNode, edge.target_socket || 'top', !!expandedRoots[endNode.id], endRoots.length);
                 const flow = edgeFlows[`${edge.source_id}-${edge.target_id}`] || 0;
                 const dx = Math.abs(endPoint.x - startPoint.x); const path = `M ${startPoint.x} ${startPoint.y} C ${startPoint.x} ${startPoint.y - dx * 0.5}, ${endPoint.x} ${endPoint.y + dx * 0.5}, ${endPoint.x} ${endPoint.y}`;
                 const midX = (startPoint.x + endPoint.x) / 2; const midY = (startPoint.y + endPoint.y) / 2;
+                
+                // Flow visualization properties
+                const isFlowing = flowViz && flow > 0;
+                const strokeDash = edge.weight === 1 ? (isFlowing ? "4, 4" : "none") : "2, 2";
+
                 return (
                   <g key={`${edge.source_id}-${edge.target_id}`} className="group/edge pointer-events-auto">
                     <path d={path} stroke="transparent" strokeWidth="20" fill="none" className="cursor-pointer" onClick={() => cycleEdgeWeight(edge.source_id, edge.target_id)} />
-                    <path d={path} stroke={flow > 0 ? THEME.active.line : "#D4D4D8"} strokeWidth={edge.weight * 2} fill="none" strokeDasharray={flow > 0 ? "none" : "4, 4"} opacity={flow > 0 ? 1 : 0.4} className="pointer-events-none transition-all duration-75 font-sans" />
-                    {visibilityMode > 0 && flow > 0 && (<g transform={`translate(${midX}, ${midY + 12})`} className="pointer-events-none font-sans"><rect x="-14" y="-8" width="28" height="16" rx="4" fill="white" stroke={THEME.active.line} strokeWidth="1" className="shadow-sm" /><text x="0" y="4" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#475569" className="font-sans">{formatTime(flow)}</text></g>)}
-                    {!snapshotMode && (<foreignObject x={midX - 10} y={midY - 10} width={20} height={20}><div className="flex items-center justify-center w-full h-full font-sans"><button onClick={() => deleteEdge(edge.source_id, edge.target_id)} className="w-5 h-5 bg-white text-slate-400 hover:bg-red-500 hover:text-white rounded-full shadow-md border border-slate-100 flex items-center justify-center opacity-0 group-hover/edge:opacity-100 transition-all transform scale-75 hover:scale-100 font-sans font-sans"><X size={10} /></button></div></foreignObject>)}
+                    <path d={path} stroke={flow > 0 ? THEME.active.line : (startNode.type === 'question' || endNode.type === 'question' ? '#FCD34D' : "#D1D5DB")} strokeWidth={edge.weight === 1 ? 2 : 0.5} fill="none" strokeDasharray={strokeDash} opacity={flow > 0 ? 1 : 0.6} className="pointer-events-none transition-all duration-75 font-sans">
+                      {isFlowing && (
+                        <animate attributeName="stroke-dashoffset" from="40" to="0" dur="1s" repeatCount="indefinite" />
+                      )}
+                    </path>
+                    {(visibilityMode === 1) && flow > 0 && (<g transform={`translate(${midX}, ${midY + 12})`} className="pointer-events-none font-sans"><rect x="-14" y="-8" width="28" height="16" rx="4" fill="white" stroke={THEME.active.line} strokeWidth="1" className="shadow-sm" /><text x="0" y="4" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#475569" className="font-sans">{formatTime(flow)}</text></g>)}
+                    {!snapshotMode && (<foreignObject x={midX - 10} y={midY - 10} width={20} height={20}><div className="flex items-center justify-center w-full h-full font-sans"><button onClick={() => deleteEdge(edge.source_id, edge.target_id)} className="w-5 h-5 bg-white text-slate-400 hover:bg-red-500 hover:text-white rounded-full shadow-md border border-slate-100 flex items-center justify-center opacity-0 group-hover/edge:opacity-100 transition-all transform scale-75 hover:scale-100 font-sans"><X size={10} /></button></div></foreignObject>)}
                   </g>
                 );
              })}
              {linking && <line x1={linking.startX} y1={linking.startY} x2={linking.currentX} y2={linking.currentY} stroke={THEME.active.line} strokeWidth="2" strokeDasharray="4,4" className="font-sans" />}
           </svg>
           {nodes.map(node => {
-            const isSource = node.type === 'source'; const isPlant = node.type === 'plant'; const isDormant = node.status === 'dormant'; const isSelected = selectedNode === node.id; const isExpanded = !!expandedRoots[node.id];
+            const isResource = node.type === 'source' || node.type === 'plant'; 
+            const isQuestion = node.type === 'question';
+            if (goalsOnly && (isResource || isQuestion)) return null; 
+
+            const isDormant = node.status === 'dormant'; const isSelected = selectedNode === node.id; const isExpanded = !!expandedRoots[node.id];
             const activeRoots = (node.meta?.roots || []).filter(r => r.label.trim() !== "" || (r.hours && r.hours > 0));
             const hasRoots = activeRoots.length > 0;
             const dim = getNodeDimensions(node.type, isExpanded);
             const totalRootsHeight = isExpanded ? activeRoots.length * 20 + 32 : 32;
             const isBeingEdited = editingNode === node.id;
             const currentTheme = isDormant ? THEME.dormant : THEME.active;
-            const showHours = visibilityMode >= 1; 
             const isFlashing = flashingNode === node.id;
+            const isBlankResource = node.type === 'source' && node.label === 'New Resource';
             
-            // --- STATE-BASED STYLING ---
             const flow = nodeInflows[node.id] || 0;
             const passiveAncestors = getPassiveAncestors(node.id);
             const isActuallyActive = flow > 0 || passiveAncestors.size > 0;
+            const everInflow = (yearInflows[node.id] || 0) > 0;
             const lastActivity = getNodeLastActivity(node.id, node.label);
+            const nodeAgeDays = Math.floor((Date.now() - new Date(node.createdAt || 0).getTime()) / (1000 * 60 * 60 * 24));
             const daysSinceActivity = lastActivity ? Math.floor((Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24)) : 999;
-            const isGoingDormant = !isActuallyActive && daysSinceActivity > 14;
-            const isQuiet = !isActuallyActive && daysSinceActivity <= 14;
+            const isGoingDormant = !isActuallyActive && daysSinceActivity > 14 && nodeAgeDays > 14;
 
-            const visualStateClasses = isActuallyActive ? '' : isQuiet ? 'saturate-[0.4] brightness-[1.05] opacity-80' : 'saturate-0 brightness-[1.1] opacity-60';
+            const hasHistory = everInflow || passiveAncestors.size > 0;
+            const borderStyle = !hasHistory ? 'border-dashed' : 'border-solid';
+            const nodeTheme = hasHistory ? THEME.active : THEME.dormant;
+            const saturationClass = isActuallyActive ? '' : 'saturate-0 opacity-60 brightness-[1.05]';
             
             return (
-              <div key={node.id} style={{ left: node.x, top: node.y, width: dim.w + 40, height: dim.h + 40 }} className={`absolute group -translate-x-1/2 -translate-y-1/2 pointer-events-auto transition-all duration-75 ${isBeingEdited ? 'z-[200]' : isSelected ? 'z-50' : 'z-10'}`} onMouseDown={(e) => handleNodeMouseDown(e, node.id)} onDoubleClick={(e) => handleNodeDoubleClick(e, node)} onMouseUp={() => finishLink(node.id, 'auto')}>
+              <div key={node.id} style={{ left: node.x, top: node.y, width: dim.w + 40, height: dim.h + 40 }} className={`absolute group -translate-x-1/2 -translate-y-1/2 pointer-events-auto transition-all duration-75 ${isBeingEdited ? 'z-[200]' : isSelected ? 'z-50' : 'z-10'}`} onMouseDown={(e) => handleNodeMouseDown(e, node.id)} onDoubleClick={(e) => handleNodeDoubleClick(e, node)} onMouseUp={handleMouseUp}>
                 <div className="absolute inset-0 cursor-grab active:cursor-grabbing" onMouseDown={(e) => handleNodeMouseDown(e, node.id)} />
-                <div className={`absolute inset-[20px] flex flex-col items-center overflow-visible pointer-events-none font-sans text-slate-800 transition-all ${visualStateClasses} ${isFlashing ? 'flash-active' : ''}`}>
+                <div className={`absolute inset-[20px] flex flex-col items-center overflow-visible pointer-events-none font-sans text-slate-800 transition-all ${saturationClass} ${isFlashing ? 'flash-active' : ''}`}>
                   
-                  {isGoingDormant && (
-                     <div className="absolute -top-4 -left-4 z-50 bg-white border border-slate-200 rounded-full px-2 py-1 shadow-md flex items-center gap-1 animate-bounce">
+                  {isGoingDormant && (node.type === 'hub' || node.type === 'bed') && (
+                     <div className="absolute -top-4 -left-4 z-50 bg-white border border-slate-200 rounded-full px-2 py-1 shadow-md flex items-center gap-1">
                         <Clock size={10} className="text-orange-500" />
-                        <span className="text-[9px] font-bold text-slate-600">{30 - daysSinceActivity}d</span>
+                        <span className="text-[9px] font-bold text-slate-600">{Math.max(0, 365 - daysSinceActivity)}d</span>
                      </div>
                   )}
 
                   {node.type === 'hub' && (
-                    <div className={`w-40 h-40 rounded-full bg-white border-4 flex flex-col items-center justify-center text-center p-4 shadow-xl relative overflow-hidden shrink-0 transition-all duration-75 ${isSelected ? 'border-emerald-500 scale-105' : 'border-emerald-100'}`}>
-                      <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none font-sans"><div className="absolute -right-4 -top-4 opacity-10 transform rotate-12">{node.icon_key && <LargeIcon iconKey={node.icon_key} size={80} colorClass={isDormant ? 'text-slate-300' : currentTheme.watermark} />}</div></div>
-                      <div className="flex flex-col items-center justify-center pointer-events-none w-full h-full relative z-10 font-sans"><div className={`mb-1 hit-central transition-colors pointer-events-none ${isDormant ? 'text-slate-300' : 'text-emerald-400'}`}>{node.icon_key && ICONS[node.icon_key]}</div><div className="hit-central px-2 py-1 rounded-md pointer-events-auto font-sans"><span className="font-serif italic text-lg font-bold leading-tight relative hit-central pointer-events-none text-slate-800">{node.label}</span></div>{node.meta?.description && <div className="hit-central px-1 pointer-events-auto font-sans"><span className="text-[9px] italic opacity-70 max-w-[120px] truncate relative hit-central font-sans pointer-events-none text-slate-800">{node.meta.description}</span></div>}{showHours && flow > 0 && <div className="hit-central mt-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold flex items-center gap-1 font-sans hit-central pointer-events-auto"><Leaf size={8} fill="currentColor" /> {formatTime(flow)}</div>}</div>
+                    <div className={`w-40 h-40 rounded-full bg-white border-4 flex flex-col items-center justify-center text-center p-4 shadow-xl relative overflow-hidden shrink-0 transition-all duration-75 ${borderStyle} ${isSelected ? 'border-emerald-500 scale-105' : 'border-emerald-100'}`}>
+                      <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none font-sans"><div className="absolute -right-4 -top-4 opacity-[0.15] transform rotate-12 font-sans">{node.icon_key && <LargeIcon iconKey={node.icon_key} size={80} colorClass={isActuallyActive ? nodeTheme.watermark : 'text-slate-400'} />}</div></div>
+                      <div className="flex flex-col items-center justify-center pointer-events-none w-full h-full relative z-10 font-sans" style={{ gap: `${UI_CONFIG.hub.gap}px` }}>
+                        <div className={`hit-central transition-colors pointer-events-none ${isActuallyActive ? 'text-emerald-600' : 'text-slate-400'}`}>{node.icon_key && ICONS[node.icon_key]}</div>
+                        <div className="hit-central px-2 rounded-md pointer-events-auto font-sans text-center">
+                          <span style={{ fontSize: `${UI_CONFIG.hub.title + fontSizeScale * UI_CONFIG.scaling.title}px` }} className="font-serif italic font-bold leading-none relative hit-central pointer-events-none text-slate-800 break-words">{node.label}</span>
+                        </div>
+                        {node.meta?.description && (
+                          <div className="hit-central px-1 pointer-events-auto font-sans">
+                            <span style={{ fontSize: `${UI_CONFIG.hub.desc + fontSizeScale * UI_CONFIG.scaling.desc}px` }} className="italic opacity-70 max-w-[120px] truncate relative hit-central font-sans pointer-events-none text-slate-800 leading-none">{node.meta.description}</span>
+                          </div>
+                        )}
+                        {visibilityMode === 1 && flow > 0 && <div className="hit-central mt-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold flex items-center gap-1 font-sans hit-central pointer-events-auto"><Leaf size={8} fill="currentColor" /> {formatTime(flow)}</div>}
+                        {visibilityMode === 2 && flow > 0 && <LeafMagnitude flow={flow} maxFlow={maxInflow} />}
+                      </div>
                       {!snapshotMode && <button onClick={(e) => { e.stopPropagation(); setEditingNode(node.id); }} className="absolute top-2 right-6 p-1.5 bg-white/80 rounded-full shadow-sm border border-slate-100 opacity-0 group-hover:opacity-100 hover:text-emerald-600 transition-all z-20 pointer-events-auto font-sans"><Pencil size={12} /></button>}
                     </div>
                   )}
                   {node.type === 'bed' && (
-                    <div className={`w-full h-[100px] border-2 shadow-sm rounded-t-2xl flex flex-col items-center justify-center p-4 transition-all duration-700 relative overflow-visible shrink-0 ${currentTheme.bed} ${isSelected ? 'border-emerald-500 scale-105 ring-2 ring-emerald-500 ring-opacity-20' : ''} ${hasRoots ? 'rounded-b-none border-b-0' : 'rounded-b-2xl'}`}>
-                      <div className={`absolute inset-0 pointer-events-none overflow-hidden ${hasRoots ? 'rounded-t-2xl' : 'rounded-2xl'}`}>{node.icon_key && <div className="absolute -right-4 -top-4 opacity-10 transform rotate-12 font-sans"><LargeIcon iconKey={node.icon_key} size={80} colorClass={isDormant ? THEME.dormant.watermark : currentTheme.watermark} /></div>}</div>
-                      <div className="flex flex-col items-center justify-center pointer-events-none w-full h-full relative z-10 font-sans"><div className="hit-central px-2 py-1 rounded-md pointer-events-auto font-sans"><span className={`font-bold text-sm text-center relative hit-central pointer-events-none text-slate-800 ${isDormant ? 'text-slate-500' : currentTheme.plant}`}>{node.label}</span></div>{node.meta?.description && <div className="hit-central px-1 pointer-events-auto font-sans"><span className="text-[9px] italic opacity-70 relative text-center hit-central font-sans text-slate-800">{node.meta.description}</span></div>}{showHours && flow > 0 && <div className="hit-central mt-1 px-2 py-0.5 bg-white/60 rounded-full text-[10px] font-bold text-slate-700 shadow-sm flex items-center gap-1 relative hit-central font-sans pointer-events-auto"><Leaf size={8} fill="currentColor" className="text-emerald-600 font-sans"/> {formatTime(flow)}</div>}</div>
+                    <div className={`w-full h-[100px] border-2 shadow-sm rounded-t-2xl flex flex-col items-center justify-center p-4 transition-all duration-700 relative overflow-visible shrink-0 ${nodeTheme.bed} ${borderStyle} ${isSelected ? 'border-emerald-500 scale-105 ring-2 ring-emerald-500 ring-opacity-20' : ''} ${hasRoots ? 'rounded-b-none border-b-0' : 'rounded-b-2xl'}`}>
+                      <div className={`absolute inset-0 pointer-events-none overflow-hidden ${hasRoots ? 'rounded-t-2xl' : 'rounded-2xl'}`}>{node.icon_key && <div className="absolute -right-4 -top-4 opacity-[0.15] transform rotate-12 font-sans"><LargeIcon iconKey={node.icon_key} size={80} colorClass={isActuallyActive ? nodeTheme.watermark : 'text-slate-400'} /></div>}</div>
+                      <div className="flex flex-col items-center justify-center pointer-events-none w-full h-full relative z-10 font-sans text-center" style={{ gap: `${UI_CONFIG.bed.gap}px` }}>
+                        <div className="hit-central px-2 rounded-md pointer-events-auto font-sans">
+                          <span style={{ fontSize: `${UI_CONFIG.bed.title + fontSizeScale * UI_CONFIG.scaling.title}px` }} className={`font-bold text-center relative hit-central pointer-events-none text-slate-800 ${isActuallyActive ? 'text-emerald-700' : 'text-slate-500'} leading-none break-words`}>{node.label}</span>
+                        </div>
+                        {node.meta?.description && (
+                          <div className="hit-central px-1 pointer-events-auto font-sans">
+                            <span style={{ fontSize: `${UI_CONFIG.bed.desc + fontSizeScale * UI_CONFIG.scaling.desc}px` }} className="italic opacity-70 relative text-center hit-central font-sans text-slate-800 leading-none">{node.meta.description}</span>
+                          </div>
+                        )}
+                        {visibilityMode === 1 && flow > 0 && <div className="hit-central mt-1 px-2 py-0.5 bg-white/60 rounded-full text-[10px] font-bold text-slate-700 shadow-sm flex items-center gap-1 relative hit-central font-sans pointer-events-auto"><Leaf size={8} fill="currentColor" className="text-emerald-600 font-sans"/> {formatTime(flow)}</div>}
+                        {visibilityMode === 2 && flow > 0 && <LeafMagnitude flow={flow} maxFlow={maxInflow} />}
+                      </div>
                       {!snapshotMode && <button onClick={(e) => { e.stopPropagation(); setEditingNode(node.id); }} className="absolute top-2 right-2 p-1.5 bg-white/50 rounded-full opacity-0 group-hover:opacity-100 hover:bg-white hover:text-emerald-600 transition-all z-20 pointer-events-auto font-sans"><Pencil size={12} /></button>}
                     </div>
                   )}
-                  {(isSource || isPlant) && (
-                    <div className={`w-full h-full px-3 py-2 rounded-lg border bg-white flex items-center gap-3 shadow-sm transition-all group-hover:shadow-md relative shrink-0 font-sans text-slate-800 ${isSelected ? 'border-emerald-500 ring-1 ring-emerald-500 ring-opacity-50' : 'border-slate-200'}`}>{isSource && <div className={`p-1.5 rounded-md font-sans ${node.meta?.category === 'spring' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>{node.icon_key ? ICONS[node.icon_key] : <Anchor size={14} />}</div>}<div className="flex flex-col text-left font-sans pointer-events-none font-sans"><span className="text-xs font-bold text-slate-700 whitespace-nowrap font-sans pointer-events-none">{node.label}</span>{isSource && <span className="text-[8px] font-bold uppercase tracking-wider text-slate-400 font-sans pointer-events-none">{node.meta?.category || 'Resource'}</span>}{isPlant && showHours && flow > 0 && <span className="text-[9px] text-emerald-600 font-bold font-sans pointer-events-none">{formatTime(flow)}</span>}</div></div>
+                  {isResource && (
+                    <div className={`w-full h-full px-3 py-3 rounded-lg border flex flex-col justify-center shadow-sm transition-all group-hover:shadow-md relative shrink-0 font-sans text-slate-800 ${isBlankResource ? 'bg-emerald-50/30 border-dashed border-emerald-400' : 'bg-white border-slate-200'} ${isSelected ? 'ring-1 ring-emerald-500 ring-opacity-50 border-emerald-500' : ''}`}>
+                       <div className="flex items-center gap-3 w-full">
+                          <div className={`p-1.5 rounded-md font-sans bg-emerald-50 text-emerald-600 shrink-0 flex items-center justify-center w-8 h-8`}>{node.icon_key ? <LargeIcon iconKey={node.icon_key} size={16} /> : <Anchor size={16} />}</div>
+                          <div className="flex flex-col text-left overflow-hidden" style={{ gap: `${UI_CONFIG.resource.gap}px` }}>
+                             <span 
+                                style={{ 
+                                  fontSize: `${(node.label.length > 24 ? UI_CONFIG.resource.title - 1.5 : UI_CONFIG.resource.title) + fontSizeScale * UI_CONFIG.scaling.title}px`,
+                                  lineHeight: UI_CONFIG.resource.lineHeight
+                                }} 
+                                className="font-bold text-slate-700 break-words line-clamp-2"
+                             >
+                                {node.label}
+                             </span>
+                             {node.meta?.description && (
+                                <span style={{ fontSize: `${UI_CONFIG.resource.desc + fontSizeScale * UI_CONFIG.scaling.desc}px` }} className="text-slate-400 truncate italic">
+                                   {node.meta.description}
+                                </span>
+                             )}
+                          </div>
+                       </div>
+                       {(visibilityMode === 1 || visibilityMode === 2) && flow > 0 && (
+                          <div className="mt-1 flex justify-center w-full">
+                             {visibilityMode === 1 ? <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50/50 px-2 rounded-full border border-emerald-100">{formatTime(flow)}</span> : <LeafMagnitude flow={flow} maxFlow={maxInflow} />}
+                          </div>
+                       )}
+                    </div>
+                  )}
+                  {isQuestion && (
+                    <div className={`w-full h-full px-4 py-3 rounded-xl border-2 bg-[#FEF9C3] flex items-center gap-3 shadow-sm transition-all group-hover:shadow-md relative shrink-0 font-sans text-amber-900 border-amber-200 ${isSelected ? 'ring-2 ring-amber-400' : ''}`}>
+                       <HelpCircle size={20} className="text-amber-500 shrink-0" />
+                       <div className="flex flex-col text-left overflow-hidden">
+                          <span style={{ fontSize: `${11 + fontSizeScale * 1}px` }} className="font-bold leading-tight break-words">{node.label}</span>
+                          {node.meta?.description && <span style={{ fontSize: `${8 + fontSizeScale * 1}px` }} className="text-amber-700/60 mt-0.5 truncate italic">{node.meta.description}</span>}
+                       </div>
+                    </div>
                   )}
                   {(node.type === 'hub' || node.type === 'bed') && (<div className="pointer-events-auto w-full font-sans"><RootFooter roots={node.meta?.roots || []} expanded={isExpanded} onToggle={() => setExpandedRoots(prev => ({...prev, [node.id]: !prev[node.id]}))} isRound={node.type === 'hub'} /></div>)}
                   {!snapshotMode && (<><DeleteButton onClick={() => deleteNode(node.id)} position="top-0 right-0 transform translate-x-1/2 -translate-y-1/2 pointer-events-auto font-sans" /><PlugHandle onMouseDown={(e) => { e.stopPropagation(); startLink(node.id, node.x, node.y - dim.h/2, 'top'); }} position="top-0 transform -translate-y-1/2 pointer-events-auto font-sans" /><PlugHandle onMouseDown={(e) => { e.stopPropagation(); startLink(node.id, node.x, node.y + (hasRoots ? (dim.h/2 + (isExpanded ? totalRootsHeight : 32)) : dim.h/2), 'bottom'); }} position="bottom-0 transform translate-y-1/2 pointer-events-auto font-sans" style={{ top: hasRoots ? (dim.h/2 + (isExpanded ? totalRootsHeight : 32)) : undefined }} /></>)}
@@ -681,7 +910,7 @@ export const SanctuaryMap: React.FC = () => {
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 z-50 font-sans">
           <div className="bg-white/90 backdrop-blur-md border border-slate-200 p-1.5 rounded-full shadow-lg flex items-center gap-2 px-4 font-sans relative">
             {timeRange === 'Custom' && (
-               <div className="absolute bottom-full left-0 mb-4 flex gap-1 animate-in slide-in-from-bottom-2 bg-white p-2 rounded-lg shadow-2xl border border-slate-200">
+               <div className="absolute bottom-full left-0 mb-4 flex gap-1 animate-in slide-in-from-bottom-2 bg-white p-2 rounded-lg shadow-xl border border-slate-200">
                   <input type="date" value={customDateRange.start} onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))} className="w-24 text-[10px] border rounded bg-slate-50 px-1 py-1 font-sans text-slate-800" />
                   <span className="text-slate-300 self-center">-</span>
                   <input type="date" value={customDateRange.end} onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))} className="w-24 text-[10px] border rounded bg-slate-50 px-1 py-1 font-sans text-slate-800" />
@@ -693,27 +922,63 @@ export const SanctuaryMap: React.FC = () => {
             </div>
             
             <div className="h-4 w-px bg-slate-200 mx-1 font-sans"></div>
-            <button onClick={() => setVisibilityMode(prev => (prev + 1) % 3 as 0|1|2)} className={`p-2 rounded-full transition-colors ${visibilityMode > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`} title="Toggle Visibility (Hide -> All -> Nodes)">{visibilityMode === 0 ? <EyeOff size={16} /> : visibilityMode === 1 ? <Eye size={16} /> : <CircleIcon size={16} />}</button>
+            <button onClick={() => setFlowViz(!flowViz)} className={`p-2 rounded-full transition-colors ${flowViz ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`} title="Toggle Flow Visualization (Arrows/Dots)">
+               <Zap size={16} className={flowViz ? "animate-pulse" : ""} />
+            </button>
+            <button onClick={() => setVisibilityMode(prev => (prev + 1) % 3 as 0|1|2)} className={`p-2 rounded-full transition-colors ${visibilityMode > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`} title="Toggle Visibility (Hide -> Numbers -> Leaves)">{visibilityMode === 0 ? <EyeOff size={16} /> : visibilityMode === 1 ? <Eye size={16} /> : <Leaf size={16} />}</button>
+            <button onClick={() => setFontSizeScale(prev => (prev + 1) % 3 as 0|1|2)} className={`p-2 rounded-full transition-colors ${fontSizeScale > 0 ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`} title="Tune Font Size (Nominal -> +1 -> +2)"><Type size={16} /></button>
+            <button onClick={() => setGoalsOnly(!goalsOnly)} className={`p-2 rounded-full transition-colors ${goalsOnly ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-400'}`} title="Goals Only Filter"><Flag size={16} /></button>
             <button onClick={handleReset} className="p-2 rounded-full hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors font-sans" title="Reset"><RefreshCw size={16} /></button>
-            <button onClick={handleExportCSV} className="p-2 rounded-full hover:bg-slate-100 text-slate-400 font-sans" title="Export CSV"><Download size={16} /></button>
             <label className="p-2 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer font-sans" title="Import CSV">
                <Upload size={16} /><input type="file" className="hidden" accept=".csv" onChange={handleImportCSV} />
             </label>
+            <button onClick={handleExportCSV} className="p-2 rounded-full hover:bg-slate-100 text-slate-400 font-sans" title="Export CSV"><Download size={16} /></button>
             <button onClick={() => setSnapshotMode(!snapshotMode)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400 font-sans"><Camera size={16} /></button>
           </div>
         </div>
       )}
-      <div onDragOver={e => e.preventDefault()} onDrop={handleDropOnSeedBank} className="font-sans">
-        <SeedBank isOpen={showSeedBank} items={seedItems} onDragStart={handleSeedDragStart} onToggle={() => setShowSeedBank(!showSeedBank)} />
+
+      <div className={`fixed top-0 right-0 h-full w-80 bg-slate-50 border-l border-slate-200 shadow-xl transition-transform duration-300 z-[100] flex flex-col ${sidebarTab !== 'none' ? 'translate-x-0' : 'translate-x-full'}`}>
+         <div onClick={() => setSidebarTab('none')} className="absolute left-0 top-0 w-5 h-full cursor-w-resize hover:bg-emerald-500/5 transition-colors z-[110]" title="Collapse" />
+         <div className="flex border-b border-slate-200 bg-white/50 pl-10">
+            <button onClick={() => setSidebarTab('archive')} className={`flex-1 py-4 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 border-b-2 transition-all ${sidebarTab === 'archive' ? 'border-emerald-500 text-emerald-600 bg-white' : 'border-transparent text-slate-400 hover:bg-slate-50'}`}><Archive size={14} /> Archive</button>
+            <button onClick={() => setSidebarTab('done')} className={`flex-1 py-4 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 border-b-2 transition-all ${sidebarTab === 'done' ? 'border-blue-500 text-blue-600 bg-white' : 'border-transparent text-slate-400 hover:bg-slate-50'}`}><CheckSquare size={14} /> Done</button>
+            <button onClick={() => setSidebarTab('none')} className="p-4 text-slate-300 hover:text-slate-600 transition-colors"><X size={16} /></button>
+         </div>
+         <div className="p-4 border-b border-slate-100 bg-white flex items-center gap-2 pl-10">
+            {sidebarShowSearch ? (
+               <input autoFocus type="text" placeholder="Search..." value={sidebarSearch} onChange={(e) => setSidebarSearch(e.target.value)} className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-emerald-400 bg-white text-slate-800" />
+            ) : (
+               <p className="flex-1 text-[10px] font-bold uppercase tracking-tighter text-slate-400">{sidebarTab === 'archive' ? 'Seed Bank' : 'Timeline'}</p>
+            )}
+            <button onClick={() => setSidebarShowSearch(!sidebarShowSearch)} className={`p-1.5 rounded-md transition-colors ${sidebarShowSearch ? 'text-emerald-600' : 'text-slate-400 hover:bg-slate-100'}`}><Search size={14} /></button>
+            {sidebarTab === 'done' && <button onClick={() => setDoneGroupBy(doneGroupBy === 'course' ? 'date' : 'course')} className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" title="Toggle Grouping">{doneGroupBy === 'course' ? <LayoutList size={14} /> : <Calendar size={14} />}</button>}
+         </div>
+         <div className="flex-1 overflow-y-auto p-4 pl-10">
+            {sidebarTab === 'archive' && (
+               <div className="grid grid-cols-1 gap-2">
+                  {seedItems.filter(i => i.label.toLowerCase().includes(sidebarSearch.toLowerCase())).map(item => (
+                     <div key={item.id} draggable onDragStart={(e) => handleSeedDragStart(e, item)} className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-emerald-300 transition-all flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                           <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg group-hover:bg-emerald-100 transition-colors">{item.type === 'bed' || item.type === 'hub' ? <Flag size={16} /> : <Sprout size={16} />}</div>
+                           <div><p className="text-xs font-bold text-slate-700">{item.label}</p><p className="text-[10px] text-slate-400">Dormant {item.days} days</p></div>
+                        </div>
+                        <div className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[8px] font-bold uppercase tracking-widest">{item.tag}</div>
+                     </div>
+                  ))}
+               </div>
+            )}
+            {sidebarTab === 'done' && (
+               <DoneLog isOpen={true} logs={logs} onDragStart={handleDoneDragStart} groupBy={doneGroupBy} sidebarSearch={sidebarSearch} />
+            )}
+         </div>
       </div>
-      <div className="font-sans">
-         <DoneLog isOpen={showDoneLog} logs={logs} onToggle={() => setShowDoneLog(!showDoneLog)} onDragStart={handleDoneDragStart} />
-      </div>
-      <div className={`absolute top-8 right-8 z-50 flex gap-2 transition-transform duration-300 font-sans ${showSeedBank ? '-translate-x-64' : showDoneLog ? '-translate-x-80' : ''}`}>
+
+      <div className={`absolute top-8 right-8 z-50 flex gap-2 transition-transform duration-300 font-sans ${sidebarTab !== 'none' ? '-translate-x-80' : ''}`}>
          {!snapshotMode && (<>
-            <button onClick={() => setShowDoneLog(!showDoneLog)} className={`p-3 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-200 ${showDoneLog ? 'bg-blue-50 text-blue-600' : 'bg-white text-slate-500'} font-sans`}><CheckSquare size={20} /></button>
-            <button onClick={() => setShowSeedBank(!showSeedBank)} className={`p-3 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-200 ${showSeedBank ? 'bg-blue-50 text-blue-600' : 'bg-white text-slate-500'} font-sans`}><Archive size={20} /></button>
-            <button onClick={() => setNodes([...nodes, { id: `n-${Date.now()}`, type: 'bed', x: (400 - viewState.x) / viewState.zoom, y: (400 - viewState.y) / viewState.zoom, label: "New Goal", status: 'active' }])} className="p-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full shadow-lg transition-transform hover:scale-110 font-sans"><Plus size={24} /></button>
+            <button onClick={() => setSidebarTab(sidebarTab === 'done' ? 'none' : 'done')} className={`p-3 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-200 ${sidebarTab === 'done' ? 'bg-blue-50 text-blue-600' : 'bg-white text-slate-500'} font-sans`} title="Done activities"><CheckSquare size={20} /></button>
+            <button onClick={() => setSidebarTab(sidebarTab === 'archive' ? 'none' : 'archive')} className={`p-3 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-200 ${sidebarTab === 'archive' ? 'bg-blue-50 text-blue-600' : 'bg-white text-slate-500'} font-sans`} title="Seed bank"><Archive size={20} /></button>
+            <button onClick={() => setNodes([...nodes, { id: `n-${Date.now()}`, type: 'bed', x: (400 - viewState.x) / viewState.zoom, y: (400 - viewState.y) / viewState.zoom, label: "New Goal", status: 'active', createdAt: new Date().toISOString() }])} className="p-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full shadow-lg transition-transform hover:scale-110 font-sans"><Plus size={24} /></button>
          </>)}
          {snapshotMode && <button onClick={() => setSnapshotMode(false)} className="px-4 py-2 bg-slate-800 text-white rounded-full shadow-lg font-bold text-xs uppercase text-white font-sans">Exit</button>}
       </div>

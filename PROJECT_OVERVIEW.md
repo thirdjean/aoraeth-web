@@ -32,3 +32,12 @@ A full-screen React whiteboard for visualizing learning goals as a "Digital Gard
 
 ## 🔄 Integration Note
 The whiteboard is designed to be a standalone `plugin://` page within the Aoraeth Firefox extension, sharing a common data backbone with the sidebar via the browser's storage API.
+
+## ?? Advanced Features
+### ? Questions (Memos)
+- **Concept**: Non-quantitative nodes used for open inquiries or reflective prompts (e.g., 'How to achieve financial freedom?').
+- **Design Thought**: Questions serve as architectural landmarks. They don't aggregate hours but follow the same hierarchy, linking inquiries to the goals they inform.
+
+### ?? Energy Magnitude (Leaf Levels)
+- **Concept**: A visualization mode that replaces numbers with 1-5 leaf icons.
+- **Design Thought**: Reduces cognitive load by showing relative dedication levels, dynamically normalized to the highest energy node on screen.

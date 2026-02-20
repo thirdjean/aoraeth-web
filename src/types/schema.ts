@@ -1,4 +1,4 @@
-export type NodeType = 'hub' | 'bed' | 'plant' | 'source';
+export type NodeType = 'hub' | 'bed' | 'plant' | 'source' | 'question';
 export type NodeStatus = 'active' | 'dormant' | 'decaying' | 'completed';
 
 export interface Root {
@@ -15,12 +15,14 @@ export interface Node {
   x: number;
   y: number;
   icon_key?: string;
+  createdAt?: string;
   meta?: {
     decay_date?: string;
     description?: string;
     capacity?: number;
     category?: string;
     roots?: Root[];
+    debugHours?: Record<string, number>;
     [key: string]: any;
   };
 }
@@ -28,7 +30,9 @@ export interface Node {
 export interface Edge {
   source_id: string;
   target_id: string;
-  weight: 1 | 2 | 3; // 1 (Trickle) / 2 (Stream) / 3 (River)
+  source_socket?: 'top' | 'bottom';
+  target_socket?: 'top' | 'bottom';
+  weight: 1 | 2 | 3; 
   type: 'active_stream' | 'groundwater';
 }
 
@@ -44,5 +48,5 @@ export interface LogEntry {
   status: 'completed';
   platform: string;
   type: string;
-  timestamp: string; // ISO 8601
+  timestamp: string; 
 }

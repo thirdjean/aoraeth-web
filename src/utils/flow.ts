@@ -10,6 +10,13 @@ export const calculateFlow = (
   const nodeInflows: Record<string, number> = {};
   const edgeFlows: Record<string, number> = {};
   
+  // Deduplicate edges to prevent "phantom" splits if the same link exists twice
+  const uniqueEdges = edges.reduce((acc: Edge[], current) => {
+    const x = acc.find(e => e.source_id === current.source_id && e.target_id === current.target_id);
+    if (!x) acc.push(current);
+    return acc;
+  }, []);
+
   let timeScale = 1;
   if (timeRange === 'D') timeScale = 1/7;
   if (timeRange === 'M') timeScale = 4.3;
@@ -28,6 +35,13 @@ export const calculateFlow = (
   nodes.forEach(n => {
     let generated = 0;
     
+    // Questions never generate or receive flow
+    if (n.type === 'question') {
+      nodeGeneratedFlow[n.id] = 0;
+      nodeInflows[n.id] = 0;
+      return;
+    }
+
     // PRIORITY 1: Debug Manual Overrides
     const debugMinutes = n.meta?.debugHours?.[timeRange === 'Custom' ? 'M' : timeRange];
     if (typeof debugMinutes === 'number' && debugMinutes >= 0) {
@@ -41,7 +55,6 @@ export const calculateFlow = (
       // PRIORITY 3: Actual logs
       const now = new Date();
       const filteredLogs = logs.filter(log => {
-        // MATCH LOGIC: Match by ID OR by Course/Task Name (for dragged course nodes)
         const idMatch = log.node_id === n.id;
         const nameMatch = log.course_name?.toLowerCase() === n.label.toLowerCase() || 
                           log.task_name?.toLowerCase() === n.label.toLowerCase();
@@ -76,24 +89,29 @@ export const calculateFlow = (
   // 2. Propagate flow upwards (5 passes for hierarchy depth)
   for (let i = 0; i < 5; i++) {
     nodes.forEach(node => {
+      // Skip questions in flow propagation
+      if (node.type === 'question') return;
+
       const totalToDistribute = nodeInflows[node.id] || 0;
       if (totalToDistribute > 0) {
-        const outgoingEdges = edges.filter(e => e.source_id === node.id);
+        // Only flow to non-question nodes
+        const outgoingEdges = uniqueEdges.filter(e => e.source_id === node.id);
+        const validOutgoing = outgoingEdges.filter(e => {
+          const target = nodes.find(n => n.id === e.target_id);
+          return target && target.type !== 'question';
+        });
         
-        if (outgoingEdges.length === 1) {
-          const edge = outgoingEdges[0];
+        if (validOutgoing.length === 1) {
+          console.log(node.label,validOutgoing)
+          const edge = validOutgoing[0];
           edgeFlows[`${edge.source_id}-${edge.target_id}`] = totalToDistribute;
-        } else if (outgoingEdges.length > 1) {
-          const totalWeightPoints = outgoingEdges.reduce((acc, e) => {
-            if (e.weight === 1) return acc + 0.5;
-            if (e.weight === 3) return acc + 1.5;
-            return acc + 1.0;
+        } else if (validOutgoing.length > 1) {
+          const totalWeightPoints = validOutgoing.reduce((acc, e) => {
+            return acc + (e.weight === 2 ? 0.3 : 1.0);
           }, 0);
 
-          outgoingEdges.forEach(edge => {
-            let weightPoints = 1.0;
-            if (edge.weight === 1) weightPoints = 0.5;
-            if (edge.weight === 3) weightPoints = 1.5;
+          validOutgoing.forEach(edge => {
+            const weightPoints = (edge.weight === 2 ? 0.3 : 1.0);
             const share = weightPoints / totalWeightPoints;
             edgeFlows[`${edge.source_id}-${edge.target_id}`] = totalToDistribute * share;
           });
@@ -102,7 +120,8 @@ export const calculateFlow = (
     });
 
     nodes.forEach(node => {
-      const incomingEdges = edges.filter(e => e.target_id === node.id);
+      if (node.type === 'question') return;
+      const incomingEdges = uniqueEdges.filter(e => e.target_id === node.id);
       const received = incomingEdges.reduce((acc, e) => acc + (edgeFlows[`${e.source_id}-${e.target_id}`] || 0), 0);
       const rootMinutes = (node.meta?.roots || []).reduce((acc, r) => acc + (r.hours * 60), 0);
       nodeInflows[node.id] = (nodeGeneratedFlow[node.id] || 0) + received + rootMinutes;

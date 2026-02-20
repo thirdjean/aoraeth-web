@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/aoraeth-web/', // Set base to repo name for GitHub Pages
+  base: './', // Restored for local development and extension compatibility
   build: {
     outDir: 'dist',
     rollupOptions: {
